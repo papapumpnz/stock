@@ -1,0 +1,3 @@
+Monitors stocks current price and 50 day moving average and 200 day moving average with % difference.
+
+** this should be run frequently to monitor stocks current price **

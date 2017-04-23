@@ -1,0 +1,5 @@
+python2.7
+miniconda
+
+conda install -c anaconda scrapy=1.3.3
+conda install -c conda-forge pymongo=3.2.2

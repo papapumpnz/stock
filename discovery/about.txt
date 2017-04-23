@@ -1,0 +1,3 @@
+Discovers companies profile from stock exchange websites, ie NZX. Retrieves ticker labels, and companies name and URL and places into a mongodb.
+
+** this should be run infrequently, since these values rarely change once discovered **

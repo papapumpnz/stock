@@ -1,0 +1,6 @@
+python2.7
+miniconda
+
+conda install -c conda-forge pymongo=3.2.2
+pip install -U scikit-learn==1.8
+pip install --index-url=http://pypi.python.org/simple/ --trusted-host pypi.python.org yahoo-finance

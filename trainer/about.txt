@@ -1,0 +1,3 @@
+Trains machine learning SVM (support vector machines) machine learning classification routines to look for stock news items and classify into possitive and negative. This should look for news item dates and then find companies stock price adjustment on that date and +3 days after. Increases should determine a positive news item, and a decrease a negative news item.
+
+** usage pattern - daily ?? **
