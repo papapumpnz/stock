@@ -22,7 +22,8 @@ def connect(server,port,database,collection,index):
   collection=db[collection]
   
   # setup index
-  collection.create_index(index, unique=True)
+  if index:
+	collection.create_index(index, unique=True)
 
   return collection
 
@@ -48,22 +49,27 @@ def get_all(collection,filter=None):
 
 
 def put_one(collection,index,data):
-  # write in rows from the database
-  # index : index, ie {'ticker':'BFA'}
-  # data : dict of data to write, ie {'URL':'http://blah.com','Date':'2017-04-01:12:00:00'}
+    # write in rows from the database
+    # index : index, ie {'ticker':'BFA'}
+    # data : dict of data to write, ie {'URL':'http://blah.com','Date':'2017-04-01:12:00:00'}
 
-  result=None
+    result=None
+
+    #print('Index:%s' % index)
   
-  #print('Index:%s' % index)
-  
-  # first check if index already exists, if so update instead of insert
-  if get_one(collection,index):
-    # update exist record
-    data['updated']=str(datetime.now())
-    result=collection.update_one(dict(index),{'$set':dict(data)})
-  else:
-    # insert new record
-    data['inserted']=str(datetime.now())
-    result=collection.insert_one(dict(data))
+    if index:
+        # first check if index already exists, if so update instead of insert
+        if get_one(collection,index):
+            # update exist record
+            data['updated']=str(datetime.now())
+            result=collection.update_one(dict(index),{'$set':dict(data)})
+        else:
+            # insert new record
+            data['inserted']=str(datetime.now())
+            result=collection.insert_one(dict(data))
+    else:
+        # insert new record
+        data['inserted']=str(datetime.now())
+        result=collection.insert_one(dict(data))
     
-  return result
+	return result

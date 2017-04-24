@@ -29,14 +29,15 @@ for script in pyCustomLibraries:
 import logging
 import logging.config
 import scrapy
-from scrapy.crawler import CrawlerRunner,Crawler
+from scrapy.crawler import CrawlerProcess
 from scrapy.conf import settings
 from scrapy.utils.log import configure_logging
-from twisted.internet import reactor, defer
 from scrapy import signals
 import importlib
 import base64
 import re
+import database
+from yahoo_finance import Share
 
 #---------------------C L A S S E S ----------------------------------- 
 class Spiders():
@@ -105,58 +106,80 @@ class Spiders():
       
   def startAllSpiders(self):
     # starts crawl of all spiders
-    d = self.process.join()
-    d.addBoth(lambda _: reactor.stop()) # call this when all spiders are closed
-    reactor.run() # the script will block here until the crawling is finished
+    self.process.start() # the script will block here until the crawling is finished
  
 #-------------------- M A I N -----------------------------------------
 def main():
-  """
-  The main entry point of the application
-  """
-  logging.config.fileConfig('log.conf')
-  logger = logging.getLogger(__name__)
-  
-  # get scrapy logging
-  configure_logging(install_root_handler=False)
-  
-  # print the syspath
-  logger.info("Python sys.path variable is : %s" % sys.path)
-  if os.environ.has_key('CLASSPATH'):
-    logger.info("Python class.path variable is : %s" % os.environ['CLASSPATH'])
+    """
+    The main entry point of the application
+    """
+    logging.config.fileConfig('log.conf')
+    logger = logging.getLogger(__name__)
 
-  logger.info("Program started")
+    # get scrapy logging
+    configure_logging(install_root_handler=False)
 
-  # create a scrapy crawler process
-  process = CrawlerRunner(settings)
-  
-  # create a spider object
-  spider=Spiders(logger,process,settings)
-  
-  ###
-  #   TICKERS CRAWL
-  ###
-  
-  # load in tickers spiders
-  spider.findSpiders('tickers')
+    # print the syspath
+    logger.info("Python sys.path variable is : %s" % sys.path)
+    if os.environ.has_key('CLASSPATH'):
+        logger.info("Python class.path variable is : %s" % os.environ['CLASSPATH'])
 
-  ###
-  #   COMP INFO CRAWL
-  ###  
+    logger.info("Program started")
 
-  # load in company info spiders
-  spider.findSpiders('company_info') 
-  
-  # list spiders
-  logger.info("Spiders loaded are:")
-  spider.listSpiders()
+    # create a scrapy crawler process
+    process = CrawlerProcess(settings)
 
-  # run all spiders
-  spider.startAllSpiders() # the script will block here until the last crawl call is finished
-  
-  
-  # finish
-  logger.info("All spiders finished")
- 
+    # create a spider object
+    spider=Spiders(logger,process,settings)
+
+    ###
+    #   TICKERS CRAWL
+    ###
+
+    # load in tickers spiders
+    spider.findSpiders('tickers')
+
+    ###
+    #   COMP INFO CRAWL
+    ###  
+
+    # load in company info spiders
+    #spider.findSpiders('company_info') 
+
+    # list spiders
+    logger.info("Spiders loaded are:")
+    spider.listSpiders()
+
+    # run all spiders
+    spider.startAllSpiders() # the script will block here until the last crawl call is finished
+
+
+    ###
+    #   GET COMPANY META DATA
+    ###
+
+    # connect to the trainer database
+    #connection=database.connect(settings['MONGODB_SERVER'],settings['MONGODB_PORT'],settings['MONGODB_DB'],settings['MONGODB_COLLECTION'],settings['MONGODB_UNIQ_KEY'])
+    
+    # get all tickers
+    #tickers=database.get_all(connection)
+    
+    #for ticker in tickers:
+    
+        #meta={}
+        
+        #ticker_name='%s.%s' % (ticker['ticker'],ticker['se'])
+        #try:
+            #yahoo = Share(ticker_name)
+            #print(yahoo.get_info())
+        #except Exception as e:
+            #logger.warning("Error retrieving company info for ticker %s. Error was : %s" %(ticker_name,e))
+            #pass
+        
+
+
+    # finish
+    logger.info("All spiders finished")
+
 if __name__ == "__main__":
-  main()
+	main()

@@ -21,10 +21,36 @@ ITEM_PIPELINES = {
 FEED_FORMAT = 'csv'
 FEED_URI ='items.csv'
 
-# Database
+# Database General stuff
 DATABASE_ENABLED=True
-MONGODB_SERVER = 'localhost'
-MONGODB_PORT = 27017
-MONGODB_DB = 'stock'
-MONGODB_COLLECTION = 'tickers'
-MONGODB_UNIQ_KEY = 'ticker'
+
+# Database Tickers
+TICKERS_MONGODB_SERVER = 'localhost'
+TICKERS_MONGODB_PORT = 27017
+TICKERS_MONGODB_DB = 'stock'
+TICKERS_MONGODB_COLLECTION = 'tickers'
+TICKERS_MONGODB_UNIQ_KEY = 'ticker'
+
+# Database trainer
+TRAINER_MONGODB_SERVER = 'localhost'
+TRAINER_MONGODB_PORT = 27017
+TRAINER_MONGODB_DB = 'stock'
+TRAINER_MONGODB_COLLECTION = 'trainer'
+TRAINER_MONGODB_UNIQ_KEY = 'url'
+
+# Database stats
+STATS_MONGODB_SERVER = 'localhost'
+STATS_MONGODB_PORT = 27017
+STATS_MONGODB_DB = 'stock'
+STATS_MONGODB_COLLECTION = 'stats'
+STATS_MONGODB_UNIQ_KEY = ''
+
+# Price History days - amount of days to get historical price data for a news item
+PRICE_HISTORY_DAYS=3
+
+# Classification rules
+CLASSIFICATON_POST_NEWS_TRADE_VOL_GRT=0			# dont classify news items that have trade volumes less than or equal to
+CLASSIFICATON_POST_NEWS_OLDER_THAN_DAYS=5		# only classify news items that are x days old or older
+
+# Prediction model
+PRED_FILE_NAME='prediction_model.sav'			# filename for saving the SVC prediction model					
