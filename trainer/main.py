@@ -182,6 +182,10 @@ def main():
     """
     The main entry point of the application
     """
+    
+    # record start time
+    script_start = time.time()
+    
     logging.config.fileConfig('log.conf')
     logger = logging.getLogger(__name__)
 
@@ -228,11 +232,14 @@ def main():
         logger.info("Classfying news")
 
         # get urls that have no classification
-        db_records=database.get_all(connection,{'classification':None})
+        db_records=database.get_all(connection,{'classification':None},True)
 
         if db_records:
             logger.debug("Found %i records to classify" % int(db_records.count()))
             for record in db_records:
+                
+                # pause execution
+                time.sleep(settings['YAHOO_FINANCE_DOWNLOAD_DELAY'])
                 
                 logger.info("Classifying news item %s" % record['url'])
                 
@@ -254,6 +261,7 @@ def main():
                     try:
                         yahoo = Share(ticker_name)
                         item['price_history']=yahoo.get_historical(str(from_date),str(to_date))
+                        item['price_200_avg']=yahoo.get_200day_moving_avg()
                     except Exception as e:
                         logger.warning("Error retrieving historical share price for ticker %s. Error was : %s" %(ticker_name,e))
                         item['price_history']=None
@@ -262,31 +270,34 @@ def main():
                         # calculate classification
                         # take first last record (since its actually the date of the news item) and take the first (later date) and calculate % diff
                         his_len=(len(item['price_history'])-1)
-                        if 'Open' in item['price_history'][his_len]:
-                            start=item['price_history'][his_len]['Open']
+                        if 'Close' in item['price_history'][his_len]:
+                            end=item['price_history'][his_len]['Close']
                         else:
                             logger.warning('Incomplete price history : %s' % item['price_history'][his_len])
-                            start=None
+                            end=None
                             
                         if 'Open' in item['price_history'][0]:
-                            end=item['price_history'][0]['Open']
+                            start=item['price_history'][0]['Open']
                         else:
                             logger.warning('Incomplete price history : %s' % item['price_history'][0])
-                            end=None
+                            start=None
                         
                         # check if we have a start and end price, if not skip this
                         if start and end:
-                            int_diff=(float(end)-float(start))
+                            post_news_gain=(float(end)-float(start))/float(start)    # 3 day close price - start price / start price
+                            item['percent_gain']=post_news_gain
+                            item['3_day_close']=end
                             
                             # get volume of trades over that period. We want to see trade volume movement otherwise the news item had no impact on price
                             trade_vol=0
                             for price in item['price_history']:
                                 trade_vol=trade_vol+int(price['Volume'])
                             
+                            # determine if news item caused gain or loss
                             if trade_vol<=settings['CLASSIFICATON_POST_NEWS_TRADE_VOL_GRT']:
                                 item['classification']='na'
                             else:
-                                if int_diff<0:
+                                if post_news_gain<0:
                                     item['classification']='neg'
                                 else:
                                     item['classification']='pos'
@@ -295,18 +306,25 @@ def main():
                             #print(item)
                             result=database.put_one(connection,{settings['TRAINER_MONGODB_UNIQ_KEY']:record['url']},item)
                         else:
+                            # pass start and end check
                             pass
                     else:
+                        # pass if item price history
                         pass
                 else:
+                    # pass if news item newer than CLASSIFICATON_POST_NEWS_OLDER_THAN_DAYS
                     logger.info("News item %s is newer that %s days. Skipping." % (record['url'],settings['CLASSIFICATON_POST_NEWS_OLDER_THAN_DAYS']))
                     pass
         else:
+            # no records to classify
             logger.debug("Found 0 records to classify")
+            
+        # close mongo cursor
+        db_records.close()
         
         
     ###
-    #   PROCESS NEWS TEXT - TOKENIZE, LOWERCASE, LEMMATIZE and STOP WORD PROCESSING
+    #   PROCESS NEWS TEXT
     ###
     logger.info("Normalising news text")
 
@@ -327,12 +345,29 @@ def main():
             # tokenize
             tokens = word_tokenize(the_text)
             
+            # only keep words with alpha characters
+            new_tokens=[]
+            for t in tokens:
+                if any(char.isalpha() for char in t):
+                    new_tokens.append(t)
+
+            # remove words with digits
+            tokens=[]
+            for t in new_tokens:
+                if not any(char.isdigit() for char in t):
+                    tokens.append(t)
+            
+            # stemmer
+            porter = nltk.PorterStemmer()
+            lancaster = nltk.LancasterStemmer()
+            #stemm = [porter.stem(t) for t in new_tokens]
+            
             # remove stop words
             filtered = [w for w in tokens if not w in stopwords.words('english')]
             
             # lemmatize
             wnl = nltk.WordNetLemmatizer()
-            item['text']=[wnl.lemmatize(t) for t in tokens]
+            item['text']=[wnl.lemmatize(t) for t in filtered]
             item['text_processed']='true'
             
             # write the record back
@@ -446,6 +481,10 @@ def main():
     logger.info("Saving prediction model")
     joblib.dump(classifier_liblinear, settings['PRED_FILE_NAME'])
 
+    # record end time
+    script_end = time.time()
+    script_run_time = script_end-script_start
+
     # dump stats data to database
     logger.info("Writing trainer statistics to database")
     
@@ -455,14 +494,15 @@ def main():
     stats_connection=database.connect(settings['STATS_MONGODB_SERVER'],settings['STATS_MONGODB_PORT'],settings['STATS_MONGODB_DB'],settings['STATS_MONGODB_COLLECTION'],settings['STATS_MONGODB_UNIQ_KEY'])
     
     # construct the stats
-    stats['trainer_precesion']=get_avg_precision(report_lin)
-    stats['trainer_train_time']=time_linear_train
-    stats['trainer_predict_time']=time_linear_predict
-    stats['trainer_pos_labels']=tr_data_count['pos']
-    stats['trainer_neg_labels']=tr_data_count['neg']
-    stats['trainer_na_labels']=tr_data_count['na']
+    stats['precesion']=get_avg_precision(report_lin)
+    stats['train_time']=time_linear_train
+    stats['predict_time']=time_linear_predict
+    stats['pos_labels']=tr_data_count['pos']
+    stats['neg_labels']=tr_data_count['neg']
+    stats['na_labels']=tr_data_count['na']
+    stats['run_time']=str(script_run_time)
     
-    # write the stats
+    # write the stats (no index here so use None)
     database.put_one(stats_connection,None,stats)
 
   

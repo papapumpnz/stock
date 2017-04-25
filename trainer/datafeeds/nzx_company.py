@@ -26,7 +26,7 @@ configure_logging(install_root_handler=False)
  
    # This should return an item to the pipeline that has:
    #   item['url']                string - url of the actual news item html page
-   #   item['se']				string - tickers stock exhchange
+   #   item['se']                string - tickers stock exhchange
    #   item['ticker']            string - ticker of the stock
    #   item['date']                string - date the news item was posted in YYYY-MM-DD
    #   item['text']                string - actual news item text
@@ -37,6 +37,7 @@ configure_logging(install_root_handler=False)
 class mySpider(scrapy.Spider):
     name='nzx'
     base_url='https://www.nzx.com/companies/'
+    url_append='/announcements'
     settings = get_project_settings()
     output_to_file=False
     
@@ -53,14 +54,15 @@ class mySpider(scrapy.Spider):
             logger.info("Reading tickers from database")
             
             #development only
-            #request=scrapy.Request('https://www.nzx.com/companies/CDI', callback=self.parse)
+            #request=scrapy.Request('https://www.nzx.com/companies/CDI/announcements', callback=self.parse)
             #request.meta['item']={'ticker':'CDI','se':'NZ'}
             #yield request
             
             db_objects=database.get_all(connection)
             
             for record in db_objects:
-                url='%s%s' % (self.base_url,str(record['ticker']))
+                url=urlparse.urljoin(self.base_url,str(record['ticker'])+self.url_append)
+                #url='%s%s' % (self.base_url,str(record['ticker']))
                 self.logger.debug("Processing URL %s" % url)
                 request=scrapy.Request(url, callback=self.parse)
                 request.meta['item']=record
@@ -70,7 +72,8 @@ class mySpider(scrapy.Spider):
             f=open('items.csv', 'rb')
             reader=csv.DictReader(f)
             for row in reader:
-                url='%s%s' % (self.base_url,row['ticker'])
+                url=urlparse.urljoin(base_url,str(row['ticker'])+self.url_append)
+                #url='%s%s' % (self.base_url,row['ticker'])
                 logger.debug("Processing URL %s" % url)
                 self.logger.info("Scraping URL %s" %url)
                 
@@ -96,7 +99,7 @@ class mySpider(scrapy.Spider):
         
         # get news item urls
         
-        news_items=response.xpath('/html/body/section/div[2]/div/div/div[2]/div[3]/table/tbody/tr')
+        news_items=response.xpath('//*[@id="body"]/tr')
         #print(news_items)
         #print(ticker)
         for news in news_items:
@@ -109,7 +112,7 @@ class mySpider(scrapy.Spider):
             self.logger.info("Processing URL %s" % news_item['url'])
             
             # check if we already have this key in our database, if so skip we dont want to process it again
-            existing=database.get_one(connection,{self.settings['TICKERS_MONGODB_UNIQ_KEY']:news_item[self.settings['TICKERS_MONGODB_UNIQ_KEY']]})
+            existing=database.get_one(connection,{self.settings['TRAINER_MONGODB_UNIQ_KEY']:news_item[self.settings['TRAINER_MONGODB_UNIQ_KEY']]})
 
             if not existing:
                 date=news.xpath('td[2]/text()').extract()[0].strip()

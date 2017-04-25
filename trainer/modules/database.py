@@ -37,15 +37,15 @@ def get_one(collection,filter=None):
   else:
     return collection.find()
 
-def get_all(collection,filter=None):
+def get_all(collection,filter=None,timeout=False):
   # read in rows from the database
   
   #print('Filter:%s' % filter)
   
   if filter is not None:
-    return collection.find(dict(filter))
+    return collection.find(dict(filter),no_cursor_timeout=timeout)
   else:
-    return collection.find()
+    return collection.find(no_cursor_timeout=timeout)
 
 
 def put_one(collection,index,data):
