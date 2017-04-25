@@ -270,22 +270,22 @@ def main():
                         # calculate classification
                         # take first last record (since its actually the date of the news item) and take the first (later date) and calculate % diff
                         his_len=(len(item['price_history'])-1)
-                        if 'Close' in item['price_history'][his_len]:
-                            end=item['price_history'][his_len]['Close']
+                        if 'Open' in item['price_history'][his_len]:
+                            start=item['price_history'][his_len]['Open']
                         else:
                             logger.warning('Incomplete price history : %s' % item['price_history'][his_len])
-                            end=None
+                            start=None
                             
-                        if 'Open' in item['price_history'][0]:
-                            start=item['price_history'][0]['Open']
+                        if 'Close' in item['price_history'][0]:
+                            end=item['price_history'][0]['Close']
                         else:
                             logger.warning('Incomplete price history : %s' % item['price_history'][0])
-                            start=None
+                            end=None
                         
                         # check if we have a start and end price, if not skip this
                         if start and end:
                             post_news_gain=(float(end)-float(start))/float(start)    # 3 day close price - start price / start price
-                            item['percent_gain']=post_news_gain
+                            item['percent_gain']=str(post_news_gain)
                             item['3_day_close']=end
                             
                             # get volume of trades over that period. We want to see trade volume movement otherwise the news item had no impact on price
@@ -313,7 +313,7 @@ def main():
                         pass
                 else:
                     # pass if news item newer than CLASSIFICATON_POST_NEWS_OLDER_THAN_DAYS
-                    logger.info("News item %s is newer that %s days. Skipping." % (record['url'],settings['CLASSIFICATON_POST_NEWS_OLDER_THAN_DAYS']))
+                    logger.info("News item %s is newer than %s days. Skipping." % (record['url'],settings['CLASSIFICATON_POST_NEWS_OLDER_THAN_DAYS']))
                     pass
         else:
             # no records to classify
@@ -507,7 +507,7 @@ def main():
 
   
     # finish
-    logger.info("All spiders finished")
+    logger.info("All spiders finished. Run time was %s seconds" % script_run_time)
  
 if __name__ == "__main__":
     main()
