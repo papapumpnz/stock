@@ -109,7 +109,6 @@ class mySpider(scrapy.Spider):
             
             # check if we already have this key in our database, if so skip we dont want to process it again
             existing=database.get_one(connection,{self.settings['TRAINER_MONGODB_UNIQ_KEY']:news_item[self.settings['TRAINER_MONGODB_UNIQ_KEY']]})
-            print('cats')
             if not existing:
                 date=news.xpath('td[2]/text()').extract()[0].strip()
                 from_date=datetime.strptime(date,'%d %b %Y,  %I:%M%p').date()

@@ -1,3 +1,0 @@
-Checks stock for new news items. If found runs a prediction vector model to determine if news is going to affect stock neg, pos or na. Also additional stock data is downloaded to determine recommendation on short or long or ignore.
-
-** usage pattern - frequently to identify new news items **

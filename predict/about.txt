@@ -1,0 +1,3 @@
+Identifies new news items and predicts impact to stock price. Gets other essential stock information to make a prediction on future stock price.
+
+** usage pattern - often **

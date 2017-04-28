@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-train_only=False            # dont download news feeds, use what we have in db and train the data
+train_only=True            # dont download news feeds, use what we have in db and train the data
 
 import sys
 import os
@@ -51,10 +51,14 @@ import nltk
 from nltk import word_tokenize
 from nltk.corpus import stopwords
 
+from pandas import DataFrame
+
 from sklearn.cross_validation import train_test_split
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn import svm
-from sklearn.metrics import classification_report
+from sklearn.feature_extraction.text import CountVectorizer,TfidfTransformer
+from sklearn.naive_bayes import MultinomialNB,BernoulliNB
+from sklearn.pipeline import Pipeline
+from sklearn.cross_validation import KFold
+from sklearn.metrics import classification_report,confusion_matrix,f1_score
 from sklearn.externals import joblib
 
 import matplotlib.pyplot as plt
@@ -324,61 +328,6 @@ def main():
         
         
     ###
-    #   PROCESS NEWS TEXT
-    ###
-    logger.info("Normalising news text")
-
-    # get urls that have not had text processing
-    db_records=database.get_all(connection,{'text_processed':None})
-
-    if db_records:
-        logger.debug("  Found %i records to process for news text" % int(db_records.count()))
-        for record in db_records:
-            
-            logger.info("  Converting news text for item %s" % record['url'])
-            
-            item={}
-            
-            # conver to lowercase
-            the_text=record['text'].lower()
-            
-            # tokenize
-            tokens = word_tokenize(the_text)
-            
-            # only keep words with alpha characters
-            new_tokens=[]
-            for t in tokens:
-                if any(char.isalpha() for char in t):
-                    new_tokens.append(t)
-
-            # remove words with digits
-            tokens=[]
-            for t in new_tokens:
-                if not any(char.isdigit() for char in t):
-                    tokens.append(t)
-            
-            # stemmer
-            porter = nltk.PorterStemmer()
-            lancaster = nltk.LancasterStemmer()
-            #stemm = [porter.stem(t) for t in new_tokens]
-            
-            # remove stop words
-            filtered = [w for w in tokens if not w in stopwords.words('english')]
-            
-            # lemmatize
-            wnl = nltk.WordNetLemmatizer()
-            item['text']=[wnl.lemmatize(t) for t in filtered]
-            item['text_processed']='true'
-            
-            # write the record back
-            #print(item)
-            result=database.put_one(connection,{settings['TRAINER_MONGODB_UNIQ_KEY']:record['url']},item)
-            
-
-    else:
-        logger.debug("  Found 0 records to process for news text")    
-
-    ###
     #   Train
     ###
     logger.info("Training")
@@ -387,99 +336,121 @@ def main():
     logger.debug("  Getting data from database")
     db_records=database.get_all(connection,{'classification':{'$ne':None}})
     
-    # format our train data into an array
-    logger.debug("  Formatting data")
-    tr_data=[]
-    tr_labels=[]
+    # get our train data into a pandas dataframe
+    logger.debug("  Putting data into dataframe")
+
+    rows=[]
+    index=[]
     
     for record in db_records:
-        tr_labels.append(record['classification'])
-        tr_data.append(record['text'])
+        rows.append({'text':record['text'], 'class':record['classification']})
+        index.append(record['url'])
+    
+    data = DataFrame({'text': [], 'class': []})
+    data = DataFrame(rows, index=index)
+    data = data.reindex(np.random.permutation(data.index))
+    
+
+    
+    # check dataframe content
+    #print ("Head")
+    #print (data.head(10))
+    
+    # check our dataframe columns
+    print ("\nColumns check")
+    print ("  %s" % data.columns)
+    # print elements
+    print("  The data-set has %d rows and %d columns"%(data.shape[0],data.shape[1]))
+    
+    print("\nMissing data check")
+    for col_name in data.columns:
+        print ("  %s : %s" % (col_name,sum(data[col_name].isnull())))
+    
+    #print("\nClass distribution pre")
+    #print(data.describe(include='all'))
+    
+    print("\nDuplicates check")
+    print(sum(data.duplicated()))
+    
+    print("\nCategory count")
+    category_counter={x:0 for x in set(data['class'])}
+    for each_cat in data['class']:
+        category_counter[each_cat]+=1
+    print(category_counter)
+    
+    # format text
+    print("\nTransforming data")
+    corpus=data.text
+    all_words=[w.split() for w in corpus]
+    all_flat_words=[ewords for words in all_words for ewords in words]
+    
+    #removing all the stop words from the corpus
+    all_flat_words_ns=[w for w in all_flat_words if w not in stopwords.words("english")]
+    
+    #removing all duplicates
+    set_nf=set(all_flat_words_ns)
+
+    print("Number of unique vocabulary words in the text column of the dataframe: %d"%len(set_nf))
+    
+    porter=nltk.PorterStemmer()
+    for each_row in data.itertuples():
+        m1=map(lambda x: x,(each_row[2]).lower().split())
+        #for each row converts them to lower case.
+        m2=[]
+        for word in m1:
+            m2.append(''.join(e for e in word if e.isalpha()))
+        #for each row removes words with digits
+        m3=map(lambda x: porter.stem(x),m2)
+        #Using Porter Stemmer in NLTK, stemming is performed on the str created in previous step.
+        data.loc[each_row[0],'text_proc']=' '.join(m3)
+
+    print("\nClass distribution post")
+    print(data.describe(include='all'))
+
+    print ("\nHead")
+    print (data.head(10))
+    
+    corpus=data.text_proc
+    
+    pipeline = Pipeline([
+		('count_vectorizer', CountVectorizer(ngram_range=(1, 2))),
+		('classifier',       MultinomialNB())
+    ])   
+
+    # train the data
+    logger.debug("  training data")
+   
+    k_fold = KFold(n=len(data), n_folds=2)
+    
+    scores = []
+    confusion = np.array([[0, 0,0], [0, 0,0], [0, 0,0]])
+    for train_indices, test_indices in k_fold:
+        train_text = data.iloc[train_indices]['text_proc'].values
+        train_y = data.iloc[train_indices]['class'].values.astype(str)
+
+        test_text = data.iloc[test_indices]['text_proc'].values
+        test_y = data.iloc[test_indices]['class'].values.astype(str)
         
-    
-    #pprint(tr_data)
-    
-    tr_data_count = Counter(tr_labels)
-    logger.debug("    Total label count : %s" %tr_data_count.most_common(10))
-    
-    # split our data into a 20% test and an 80% train data sets
-    logger.debug("  Splitting datasets")
-    train_data,test_data,train_labels,test_labels=train_test_split(tr_data,tr_labels, test_size=0.2, random_state=45)
-    
-    logger.debug("    Train data : %s" % len(train_data))
-    #logger.debug("Train labels : %s" % len(train_labels))
-    logger.debug("    Test data : %s" % len(test_data))
-    #logger.debug("Test labels : %s" % len(test_labels))
- 
-    tl_count = Counter(train_labels)
-    logger.debug("    Train label count : %s" %tl_count.most_common(10))
-    tel_count = Counter(test_labels)
-    logger.debug("    Test label count : %s" %tel_count.most_common(10))
-    
-    # Create feature vectors
-    logger.debug("  Creating feature vectors")
-    tfidf = TfidfVectorizer(preprocessor=lambda x: x, tokenizer=lambda x: x)
-    train_vectors = tfidf.fit_transform(train_data)
-    test_vectors = tfidf.transform(test_data)
-    
-    # Perform classification with SVM, kernel=rbf
-    logger.debug("  Preforming classification with SVM")
-    classifier_rbf = svm.SVC()
-    t0 = time.time()
-    classifier_rbf.fit(train_vectors, train_labels)
-    t1 = time.time()
-    prediction_rbf = classifier_rbf.predict(test_vectors)
-    t2 = time.time()
-    time_rbf_train = t1-t0
-    time_rbf_predict = t2-t1
+        pipeline.fit(train_text, train_y)
+        predictions = pipeline.predict(test_text)
+        
+        confusion += confusion_matrix(test_y, predictions)
+        score = f1_score(test_y, predictions,average=None)
+        scores.append(score)
 
-    # Perform classification with SVM, kernel=linear
-    classifier_linear = svm.SVC(kernel='linear')
-    t0 = time.time()
-    classifier_linear.fit(train_vectors, train_labels)
-    t1 = time.time()
-    prediction_linear = classifier_linear.predict(test_vectors)
-    t2 = time.time()
-    time_linear_train = t1-t0
-    time_linear_predict = t2-t1
-
-    # Perform classification with SVM, kernel=linear
-    classifier_liblinear = svm.LinearSVC()
-    t0 = time.time()
-    classifier_liblinear.fit(train_vectors, train_labels)
-    t1 = time.time()
-    prediction_liblinear = classifier_liblinear.predict(test_vectors)
-    t2 = time.time()
-    time_liblinear_train = t1-t0
-    time_liblinear_predict = t2-t1
-
-    # Print results in a nice table
-    print("Results for SVC(kernel=rbf)")
-    print("Training time: %fs; Prediction time: %fs" % (time_rbf_train, time_rbf_predict))
-    report_rbf=classification_report(test_labels, prediction_rbf)
-    print(report_rbf)
+    print('Total classified:', len(data))
+    print('Score:', sum(scores)/len(scores))
+    print('Confusion matrix:')
+    print(confusion)    
     
-    print("Results for SVC(kernel=linear)")
-    print("Training time: %fs; Prediction time: %fs" % (time_linear_train, time_linear_predict))
-    report_lin=classification_report(test_labels, prediction_linear)
-    print(report_lin)
-    
-    print("Results for LinearSVC()")
-    print("Training time: %fs; Prediction time: %fs" % (time_liblinear_train, time_liblinear_predict))
-    report_lib=classification_report(test_labels, prediction_liblinear)
-    print(report_lib)
-     
-    # plot the reports to images
-    plot_classification_report(report_rbf,title="kernel_rbf")
-    plot_classification_report(report_lin,title="kernel_linear")
-    plot_classification_report(report_lib,title="kernel_liblinear")
+
     
 
     ###
     #   Finish
     ###
     logger.info("Saving prediction model")
-    joblib.dump(classifier_liblinear, settings['PRED_FILE_NAME'])
+    joblib.dump(pipeline, settings['PRED_FILE_NAME'])
 
     # record end time
     script_end = time.time()
@@ -494,16 +465,16 @@ def main():
     stats_connection=database.connect(settings['STATS_MONGODB_SERVER'],settings['STATS_MONGODB_PORT'],settings['STATS_MONGODB_DB'],settings['STATS_MONGODB_COLLECTION'],settings['STATS_MONGODB_UNIQ_KEY'])
     
     # construct the stats
-    stats['precesion']=get_avg_precision(report_lin)
-    stats['train_time']=time_linear_train
-    stats['predict_time']=time_linear_predict
-    stats['pos_labels']=tr_data_count['pos']
-    stats['neg_labels']=tr_data_count['neg']
-    stats['na_labels']=tr_data_count['na']
-    stats['run_time']=str(script_run_time)
+    #stats['precesion']=get_avg_precision(report_lin)
+    #stats['train_time']=time_linear_train
+    #stats['predict_time']=time_linear_predict
+    #stats['pos_labels']=tr_data_count['pos']
+    #stats['neg_labels']=tr_data_count['neg']
+    #stats['na_labels']=tr_data_count['na']
+    #stats['run_time']=str(script_run_time)
     
     # write the stats (no index here so use None)
-    database.put_one(stats_connection,None,stats)
+    #database.put_one(stats_connection,None,stats)
 
   
     # finish

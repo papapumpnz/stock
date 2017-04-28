@@ -1,2 +1,5 @@
 data/
 *.pdf
+*.csv
+*.docx
+git_add.txt
