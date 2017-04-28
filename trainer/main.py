@@ -413,8 +413,9 @@ def main():
     corpus=data.text_proc
     
     pipeline = Pipeline([
-		('count_vectorizer', CountVectorizer(ngram_range=(1, 2))),
-		('classifier',       MultinomialNB())
+		('count_vectorizer',   CountVectorizer(ngram_range=(1,  2))),
+		('tfidf_transformer',  TfidfTransformer()),
+		('classifier',         MultinomialNB())
     ])   
 
     # train the data

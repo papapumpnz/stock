@@ -16904,3 +16904,7 @@
 2017-04-28 22:09:21,871 - __main__ - INFO - Training
 2017-04-28 22:09:21,871 - __main__ - DEBUG -   Getting data from database
 2017-04-28 22:09:21,872 - __main__ - DEBUG -   Putting data into dataframe
+2017-04-28 22:11:55,990 - __main__ - DEBUG -   training data
+2017-04-28 22:11:58,878 - __main__ - INFO - Saving prediction model
+2017-04-28 22:12:00,658 - __main__ - INFO - Writing trainer statistics to database
+2017-04-28 22:12:00,661 - __main__ - INFO - All spiders finished. Run time was 158.799999952 seconds
