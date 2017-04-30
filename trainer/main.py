@@ -47,6 +47,8 @@ from pprint import pprint
 
 from yahoo_finance import Share
 
+from bs4 import BeautifulSoup
+
 import nltk
 from nltk import word_tokenize
 from nltk.corpus import stopwords
@@ -54,8 +56,9 @@ from nltk.corpus import stopwords
 from pandas import DataFrame
 
 from sklearn.cross_validation import train_test_split
-from sklearn.feature_extraction.text import CountVectorizer,TfidfTransformer
+from sklearn.feature_extraction.text import CountVectorizer,TfidfTransformer,TfidfVectorizer
 from sklearn.naive_bayes import MultinomialNB,BernoulliNB
+from sklearn.linear_model import SGDClassifier
 from sklearn.pipeline import Pipeline
 from sklearn.cross_validation import KFold
 from sklearn.metrics import classification_report,confusion_matrix,f1_score
@@ -180,6 +183,28 @@ def get_avg_precision(cr):
     line=str(avg_line).split(' ')
     return(str(line[9]))
 
+def print_cm(cm, labels, hide_zeroes=False, hide_diagonal=False, hide_threshold=None):
+    """pretty print for confusion matrixes"""
+    columnwidth = max([len(x) for x in labels]+[5]) # 5 is value length
+    empty_cell = " " * columnwidth
+    # Print header
+    print "    " + empty_cell,
+    for label in labels: 
+        print "%{0}s".format(columnwidth) % label,
+    print
+    # Print rows
+    for i, label1 in enumerate(labels):
+        print "    %{0}s".format(columnwidth) % label1,
+        for j in range(len(labels)): 
+            cell = "%{0}.1f".format(columnwidth) % cm[i, j]
+            if hide_zeroes:
+                cell = cell if float(cm[i, j]) != 0 else empty_cell
+            if hide_diagonal:
+                cell = cell if i != j else empty_cell
+            if hide_threshold:
+                cell = cell if cm[i, j] > hide_threshold else empty_cell
+            print cell,
+        print
  
 #-------------------- M A I N -----------------------------------------
 def main():
@@ -334,7 +359,8 @@ def main():
     
     # get all our train data
     logger.debug("  Getting data from database")
-    db_records=database.get_all(connection,{'classification':{'$ne':None}})
+    #db_records=database.get_all(connection,{'classification':{'$ne':None}})
+    db_records=database.get_all(connection,{'$or': [{'classification':'pos'},{'classification':'neg'}]})
     
     # get our train data into a pandas dataframe
     logger.debug("  Putting data into dataframe")
@@ -343,7 +369,7 @@ def main():
     index=[]
     
     for record in db_records:
-        rows.append({'text':record['text'], 'class':record['classification']})
+        rows.append({'text':BeautifulSoup(record['text']).get_text().encode('ascii', 'ignore').decode('ascii'), 'class':record['classification']})
         index.append(record['url'])
     
     data = DataFrame({'text': [], 'class': []})
@@ -369,9 +395,16 @@ def main():
     #print("\nClass distribution pre")
     #print(data.describe(include='all'))
     
-    print("\nDuplicates check")
-    print(sum(data.duplicated()))
+    dup_count=sum(data.duplicated())
+    print("\nDuplicate rows check : %s" % dup_count)
     
+    if dup_count>0:
+        print("\nRemoving duplicated rows")
+        print(data.ix[data.duplicated(keep='first'),])
+        data=data.drop_duplicates()
+        dup_count=sum(data.duplicated())
+        print("\nDuplicate rows check : %s" % dup_count)
+        
     print("\nCategory count")
     category_counter={x:0 for x in set(data['class'])}
     for each_cat in data['class']:
@@ -380,7 +413,29 @@ def main():
     
     # format text
     print("\nTransforming data")
-    corpus=data.text
+   
+   
+    porter=nltk.PorterStemmer()
+    for each_row in data.itertuples():
+        
+        m1=map(lambda x: x,(each_row[2]).lower().split())
+        #print(m1)
+        #for each row converts them to lower case.
+        m2=[]
+        for word in m1[3:15]:
+            if not any(char.isdigit() for char in word):
+				new_word=''.join(e for e in word if e.isalnum())
+				if new_word:
+					#print("word >%s< : size >%s<" %(new_word,len(new_word)))
+					m2.append(new_word)
+        #print(m2)
+        #for each row removes words with digits and replaces some unicode chars. only takes first 10 words
+        m3=map(lambda x: porter.stem(x),m2)
+        #Using Porter Stemmer in NLTK, stemming is performed on the str created in previous step.
+        data.loc[each_row[0],'text_proc']=' '.join(m3)
+
+
+    corpus=data.text_proc
     all_words=[w.split() for w in corpus]
     all_flat_words=[ewords for words in all_words for ewords in words]
     
@@ -391,40 +446,35 @@ def main():
     set_nf=set(all_flat_words_ns)
 
     print("Number of unique vocabulary words in the text column of the dataframe: %d"%len(set_nf))
-    
-    porter=nltk.PorterStemmer()
-    for each_row in data.itertuples():
-        m1=map(lambda x: x,(each_row[2]).lower().split())
-        #for each row converts them to lower case.
-        m2=[]
-        for word in m1:
-            m2.append(''.join(e for e in word if e.isalpha()))
-        #for each row removes words with digits
-        m3=map(lambda x: porter.stem(x),m2)
-        #Using Porter Stemmer in NLTK, stemming is performed on the str created in previous step.
-        data.loc[each_row[0],'text_proc']=' '.join(m3)
 
-    print("\nClass distribution post")
+    # check post processing
+    corpus=data.text_proc
+    vectorizer = TfidfVectorizer(stop_words='english')
+    tfidf_matrix=vectorizer.fit_transform(corpus).todense()
+    tfidf_names=vectorizer.get_feature_names()
+    print("\nNumber of TFIDF Features: %d"%len(tfidf_names)) #same info can be gathered by using tfidf_matrix.shape
+
+    print("\nClass distribution")
     print(data.describe(include='all'))
 
-    print ("\nHead")
-    print (data.head(10))
-    
-    corpus=data.text_proc
+    print ("\nHead(10)")
+    print(data.iloc[:10]['text_proc'].values)
+
     
     pipeline = Pipeline([
-		('count_vectorizer',   CountVectorizer(ngram_range=(1,  2))),
-		('tfidf_transformer',  TfidfTransformer()),
-		('classifier',         MultinomialNB())
+        ('count_vectorizer',   CountVectorizer(analyzer='word',ngram_range=(1,  2))),
+        ('tfidf_transformer',  TfidfTransformer()),
+        ('classifier',         SGDClassifier(loss='hinge',alpha=0.0001,penalty='elasticnet'))
     ])   
 
     # train the data
     logger.debug("  training data")
    
-    k_fold = KFold(n=len(data), n_folds=2)
+    k_fold = KFold(n=len(data), n_folds=6)
     
     scores = []
-    confusion = np.array([[0, 0,0], [0, 0,0], [0, 0,0]])
+    most_common=[]
+    confusion = np.array([[0, 0], [0, 0]])  # [0, 0], [0, 0] for 2 classes, or [0, 0, 0], [0, 0, 0], [0,0,0] for 3
     for train_indices, test_indices in k_fold:
         train_text = data.iloc[train_indices]['text_proc'].values
         train_y = data.iloc[train_indices]['class'].values.astype(str)
@@ -434,15 +484,19 @@ def main():
         
         pipeline.fit(train_text, train_y)
         predictions = pipeline.predict(test_text)
-        
+
         confusion += confusion_matrix(test_y, predictions)
         score = f1_score(test_y, predictions,average=None)
         scores.append(score)
+        most_common.append(Counter(train_text).most_common())
 
-    print('Total classified:', len(data))
-    print('Score:', sum(scores)/len(scores))
-    print('Confusion matrix:')
-    print(confusion)    
+    print('\nTotal classified:', len(data))
+    print('\nScore:', sum(scores)/len(scores))
+    print('\nConfusion matrix:')
+    labels=['neg','pos']
+    print_cm(confusion,labels)
+    print("\nCategory count: %s" % category_counter)
+        
     
 
     
